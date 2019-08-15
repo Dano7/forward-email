@@ -16,14 +16,16 @@
 
 * [How It Works](#how-it-works)
 * [Send Mail As Using Gmail](#send-mail-as-using-gmail)
-* [Issues & Debugging](#issues--debugging)
-* [Timeline](#timeline)
+* [Issues and Debugging](#issues-and-debugging)
+* [Service Specific Settings](#service-specific-settings)
+  * [Shopify](#shopify)
 * [Self-Hosted Requirements](#self-hosted-requirements)
 * [Programmatic Usage](#programmatic-usage)
 * [Service-Level Agreement](#service-level-agreement)
 * [Terms of Use](#terms-of-use)
 * [FAQ](#faq)
   * [Why did I create this service](#why-did-i-create-this-service)
+  * [Can I just use this mail forwarding service as a "fallback" or "fallover" MX server](#can-i-just-use-this-mail-forwarding-service-as-a-fallback-or-fallover-mx-server)
   * [Can I forward emails to multiple recipients](#can-i-forward-emails-to-multiple-recipients)
   * [Can I have multiple global catch-all recipients](#can-i-have-multiple-global-catch-all-recipients)
   * [Is there a maximum limit on the number of email addresses I can forward to](#is-there-a-maximum-limit-on-the-number-of-email-addresses-i-can-forward-to)
@@ -64,6 +66,8 @@
 **2.** Set (and customize) the following DNS TXT records on your domain name:
 
 > If you are forwarding all emails from your domain, (`all@niftylettuce.com`, `hello@niftylettuce.com`, etc) to a specific address `niftylettuce@gmail.com`:
+>
+> **Make sure to replace the values below in the "Value/Answer/Destination" column with your own email address!  Do not leave it as-is, otherwise I will get your forwarded emails!**
 
 | Name/Host/Alias    |  TTL | Record Type | Value/Answer/Destination               |
 | ------------------ | :--: | ----------- | -------------------------------------- |
@@ -90,6 +94,12 @@
 | _@ or leave blank_ | 3600 | TXT         | `forward-email=orders:niftylettuce@gmail.com,baz:niftylettuce@gmail.com`    |
 | _@ or leave blank_ | 3600 | TXT         | `forward-email=info:niftylettuce@gmail.com,beep:niftylettuce@gmail.com`     |
 | _@ or leave blank_ | 3600 | TXT         | `forward-email=errors:niftylettuce@gmail.com,boop:niftylettuce@gmail.com`   |
+
+> As of June 28, 2019 we added support for global domain alias forwarding.  You can now specify simply a domain name in your TXT record (e.g. `user@a.com` will get forwarded to `user@b.com`):
+
+| Name/Host/Alias    |  TTL | Record Type | Value/Answer/Destination    |
+| ------------------ | :--: | ----------- | --------------------------- |
+| _@ or leave blank_ | 3600 | TXT         | `forward-email=cabinjs.com` |
 
 **3.** Set (and customize) the following SPF record for SPF verification for your domain name (this will allow SPF verification to pass, note that you may need to enclose this value in quotes if you are using Amazon Route53):
 
@@ -118,7 +128,12 @@
 _Optional Add-ons:_
 
 * Add a DMARC record for your domain name by following the instructions at <https://dmarc.postmarkapp.com> (this will allow DMARC verification to pass)
+  > :warning: If you intend to use [Send Mail As using Gmail](#send-mail-as-using-gmail), you can only set the DMARC policy to `p=none` – e.g. `v=DMARC1; p=none; pct=100; rua=mailto:re+random-key@dmarc.postmarkapp.com;`. Setting other policies, `quarantine` or `reject`, may cause sent mails to end up in recipient's spam folder or not delivered at all.
+  >
+  > DMARC requires both `From` and `Return-Path` to match the same domain. When you use "Send Mail As", your Gmail address would be used as the `Return-Path`, instead of your custom domain in `From`.
+
 * If the email lands in your spam folder (which it should not), you can whitelist it (e.g. here are instructions for Google <https://support.google.com/a/answer/60751?hl=en&ref_topic=1685627>)
+
 * Add the ability to "Send Mail As" from Gmail by following [Send Mail As Using Gmail](#send-mail-as-using-gmail) below
 
 
@@ -150,7 +165,7 @@ After you've followed the steps above in [How It Works](#how-it-works) you can f
 17. Done!
 
 
-## Issues & Debugging
+## Issues and Debugging
 
 The most probable cause of your issues with not receiving test emails or with configuration in general is due to DNS propagation and caching.
 
@@ -159,11 +174,11 @@ Fortunately our DNS provider Cloudflare has a nice "Purge Cache" tool available 
 All you need to do is go to that link for both "MX" and "TXT" record types, enter your domain name, and click "Purge Cache".  You'll then need to wait a few minutes and try again!
 
 
-## Timeline
+## Service Specific Settings
 
-* May 6, 2019: [**@niftylettuce**](https://github.com/niftylettuce) refactored the project thanks to [**@andris9**](https://github.com/andris9) and released [v2 with major performance gains](#how-fast-is-this-service)
-* November 5, 2017: [**@niftylettuce**](https://github.com/niftylettuce) released v1 of the project, with a focus to always be completely open source, transparent, private, secure, and free
-* 2010-2017: [**@niftylettuce**](https://github.com/niftylettuce) grew weary from the headache of setting of mail servers for every domain or the hassle and costs of using services Google Business and Zoho
+### Shopify
+
+See <https://help.shopify.com/en/manual/intro-to-shopify/initial-setup/setup-business-settings#add-shopifys-spf-record-to-your-domain-host-custom-domains-only> for instructions.
 
 
 ## Self-Hosted Requirements
@@ -178,6 +193,8 @@ You'll also need the following dependencies installed:
   * We also recommend you install [yarn][], which is an alternative to [npm][]
 
 * [Redis][] (v4.x+) - this is a fast key-value store database used for rate-limiting and preventing spammers
+
+  > _NOTE_: You can pass `limiter: false` as an option to your `ForwardEmail` instance to disable the Redis requirement (e.g. `const forwardEmail = new ForwardEmail({ limiter: false });`
 
   * Mac (via [brew][]): `brew install redis && brew services start redis`
   * Ubuntu:
@@ -344,6 +361,44 @@ if (process.env.NODE_ENV === 'production') {
 
 const forwardEmail = new ForwardEmail(config);
 forwardEmail.server.listen(process.env.PORT || 25);
+
+const close = (code = 0) => {
+  forwardEmail.server.close(() => {
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(code);
+  });
+};
+
+// handle warnings
+process.on('warning', warning => {
+  console.warn(warning);
+});
+
+// handle uncaught promises
+process.on('unhandledRejection', err => {
+  console.error(err);
+  close(1);
+});
+
+// handle uncaught exceptions
+process.on('uncaughtException', err => {
+  console.error(err);
+  close(1);
+});
+
+// handle windows support (signals not available)
+// <http://pm2.keymetrics.io/docs/usage/signals-clean-restart/#windows-graceful-stop>
+process.on('message', msg => {
+  if (msg === 'shutdown') {
+    console.log(msg);
+    close();
+  }
+});
+
+// handle graceful restarts
+process.on('SIGTERM', () => close());
+process.on('SIGHUP', () => close());
+process.on('SIGINT', () => close());
 ```
 
 
@@ -382,6 +437,20 @@ There's also Zoho mail, but again that requires you signing up for an account wi
 Put simply, there was no current email-forwarding service that was free, simple, secure, tested, and open-source.
 
 This service solves all of these problems.
+
+### Can I just use this mail forwarding service as a "fallback" or "fallover" MX server
+
+Absolutely.  If you use Google Business for email, and want to use our server as a fallback so your mail still gets delivered, then just specify the Google mail servers with a lower priority than our mail servers.  An example is provided below:
+
+| Name/Host/Alias    |  TTL | Record Type | Priority | Value/Answer/Destination |
+| ------------------ | :--: | ----------- | -------- | ------------------------ |
+| _@ or leave blank_ | 3600 | MX          | 1        | ASPMX.L.GOOGLE.COM.      |
+| _@ or leave blank_ | 3600 | MX          | 5        | ALT1.ASPMX.L.GOOGLE.COM. |
+| _@ or leave blank_ | 3600 | MX          | 5        | ALT2.ASPMX.L.GOOGLE.COM. |
+| _@ or leave blank_ | 3600 | MX          | 10       | ALT3.ASPMX.L.GOOGLE.COM. |
+| _@ or leave blank_ | 3600 | MX          | 10       | ALT4.ASPMX.L.GOOGLE.COM. |
+| _@ or leave blank_ | 3600 | MX          | 20       | mx1.forwardemail.net     |
+| _@ or leave blank_ | 3600 | MX          | 30       | mx2.forwardemail.net     |
 
 ### Can I forward emails to multiple recipients
 
@@ -423,7 +492,7 @@ It's up to you!
 
 ### Is there a maximum limit on the number of email addresses I can forward to
 
-Yes, the default limit is 10.  You could have `hello:niftylettuce+1@gmail.com`, `hello:niftylettuce+2@gmail.com`, `hello:niftylettuce+3@gmail.com`, … (from 1-10) – and any emails to `hello@niftylettuce.com` would get forwarded to `niftylettuce+1@gmail.com`, `niftylettuce+2@gmail.com`, `niftylettuce+3@gmail.com`, … (from 1-10).
+Yes, the default limit is 5.  You could have `hello:niftylettuce+1@gmail.com`, `hello:niftylettuce+2@gmail.com`, `hello:niftylettuce+3@gmail.com`, … (from 1-5) – and any emails to `hello@niftylettuce.com` would get forwarded to `niftylettuce+1@gmail.com`, `niftylettuce+2@gmail.com`, `niftylettuce+3@gmail.com`, … (from 1-5).
 
 ### Can I recursively forward emails
 
